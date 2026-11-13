@@ -13,6 +13,15 @@ const OPPOSITE = { left: 'right', right: 'left', up: 'down', down: 'up' };
 const PACMAN_SPEED = 0.125; // 1/8 celda/frame -> alinea cada 8 frames
 const GHOST_SPEED = 0.1;    // 1/10 celda/frame
 
+// Power pellets y modo asustado.
+const FRIGHT_FRAMES = 480;        // ~8 s a 60 fps
+const FRIGHT_FLASH_FRAMES = 120;  // ultimos ~2 s parpadeando
+const FRIGHT_FLASH_PERIOD = 10;   // frames por cambio de color
+const FRIGHTENED_SPEED = 0.05;    // 1/20 celda/frame
+const EATEN_SPEED = 0.2;          // 1/5 celda/frame
+const POWER_PELLET_SCORE = 50;
+const GHOST_SCORES = [ 200, 400, 800, 1600 ];
+
 // Orden de desempate cuando dos direcciones acercan igual al objetivo.
 const DIR_ORDER = [ 'up', 'left', 'down', 'right' ];
 // Espera escalonada de los fantasmas dentro de la pen, en frames.
@@ -29,13 +38,15 @@ function createGame() {
   grid[ PACMAN_START.y ][ PACMAN_START.x ] = 0;
 
   let dots = 0;
-  for ( const row of grid ) for ( const v of row ) if ( v === 2 ) dots++;
+  for ( const row of grid ) for ( const v of row ) if ( v === 2 || v === 4 ) dots++;
 
   return {
     state: 'start',
     score: 0,
     lives: 3,
     dotsRemaining: dots,
+    frightTimer: 0,   // frames restantes de modo asustado
+    ghostCombo: 0,    // fantasmas comidos en el modo actual (0 a 3)
     grid,
     pacman: {
       x: PACMAN_START.x,
@@ -104,10 +115,17 @@ function movePacman( game ) {
       p.dir = p.nextDir;
       p.nextDir = null;
     }
-    // Comer dot.
-    if ( grid[ p.y ][ p.x ] === 2 ) {
+    // Comer dot o power pellet.
+    const tile = grid[ p.y ][ p.x ];
+    if ( tile === 2 || tile === 4 ) {
       grid[ p.y ][ p.x ] = 0;
-      game.score += 10;
+      if ( tile === 2 ) {
+        game.score += 10;
+      } else {
+        game.score += POWER_PELLET_SCORE;
+        game.frightTimer = FRIGHT_FRAMES;
+        game.ghostCombo = 0;
+      }
       game.dotsRemaining--;
     }
     // Si no puede seguir, se detiene en la celda.
