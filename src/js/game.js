@@ -202,15 +202,27 @@ function ghostTarget( game, g ) {
 
 function decideGhost( game, g ) {
   const grid = game.grid;
-  const leaving = g.state === 'leaving';
-  const flee = game.frightTimer > 0 && !leaving;
-  const target = leaving
-    ? ( g.x < 13.5 ? PEN_EXIT_LEFT : PEN_EXIT_RIGHT )
-    : flee
+  let target;
+  let flee = false;
+
+  if ( g.state === 'eaten' ) {
+    // Los ojos vuelven a la celda sobre la puerta.
+    target = { x: g.x < 13.5 ? 13 : 14, y: 11 };
+  } else if ( g.state === 'entering' ) {
+    // Ya sobre la puerta: desciende hasta el interior de la pen.
+    target = { x: g.x < 13.5 ? 13 : 14, y: 14 };
+  } else if ( g.state === 'leaving' ) {
+    // Sigue su ruta de salida, aunque este asustado.
+    target = g.x < 13.5 ? PEN_EXIT_LEFT : PEN_EXIT_RIGHT;
+  } else {
+    flee = game.frightTimer > 0;
+    target = flee
       ? { x: Math.round( game.pacman.x ), y: Math.round( game.pacman.y ) }
       : ghostTarget( game, g );
+  }
 
-  g.dir = chooseDirection( grid, g.x, g.y, g.dir, target, leaving, flee );
+  const allowDoor = g.state === 'leaving' || g.state === 'entering';
+  g.dir = chooseDirection( grid, g.x, g.y, g.dir, target, allowDoor, flee );
 }
 
 function moveGhost( game, g ) {
@@ -227,14 +239,26 @@ function moveGhost( game, g ) {
   if ( aligned( g.x ) && aligned( g.y ) ) {
     g.x = Math.round( g.x );
     g.y = Math.round( g.y );
+
+    // Ojos: al llegar sobre la puerta empiezan a entrar; al llegar a la fila
+    // 14 reviven como leaving para salir de inmediato.
+    if ( g.state === 'eaten' && g.y === PEN_EXIT_LEFT.y &&
+         ( g.x === 13 || g.x === 14 ) ) {
+      g.state = 'entering';
+    } else if ( g.state === 'entering' && g.y === 14 ) {
+      g.state = 'leaving';
+      g.releaseTimer = 0;
+    }
+    // Ya esta por encima de la puerta: pasa a aplicar su personalidad.
+    if ( g.state === 'leaving' && g.y <= PEN_EXIT_LEFT.y ) g.state = 'normal';
+
     // La velocidad solo cambia en celdas alineadas para no perder la alineacion.
     if ( g.state === 'eaten' || g.state === 'entering' ) g.speed = EATEN_SPEED;
     else if ( game.frightTimer > 0 ) g.speed = FRIGHTENED_SPEED;
     else g.speed = GHOST_SPEED;
-    // Ya esta por encima de la puerta: pasa a aplicar su personalidad.
-    if ( g.state === 'leaving' && g.y <= PEN_EXIT_LEFT.y ) g.state = 'normal';
+
     decideGhost( game, g );
-    const allowDoor = g.state === 'leaving';
+    const allowDoor = g.state === 'leaving' || g.state === 'entering';
     if ( !canMove( grid, g.x, g.y, g.dir, 'ghost', allowDoor ) ) return;
   }
 
@@ -250,10 +274,13 @@ function resetPositions( game ) {
   p.y = PACMAN_START.y;
   p.dir = 'left';
   p.nextDir = null;
+  game.frightTimer = 0;
+  game.ghostCombo = 0;
   game.ghosts.forEach( ( g, i ) => {
     g.x = GHOST_STARTS[ i ].x;
     g.y = GHOST_STARTS[ i ].y;
     g.dir = 'up';
+    g.speed = GHOST_SPEED;
     g.state = 'waiting';
     g.releaseTimer = i * RELEASE_DELAY;
   } );
@@ -263,6 +290,11 @@ function collides( a, b ) {
   return Math.abs( a.x - b.x ) < 0.5 && Math.abs( a.y - b.y ) < 0.5;
 }
 
+// La pen ocupa x 11-16 e y 12-15; la fila 14 tambien es el tunel fuera de ese rango.
+function insidePen( g ) {
+  return g.y > 11 && g.y < 16 && g.x > 10 && g.x < 17;
+}
+
 function update( game ) {
   // Se descuenta antes de mover: al llegar a 0 el fantasma ya no es comestible.
   if ( game.frightTimer > 0 ) game.frightTimer--;
@@ -270,15 +302,26 @@ function update( game ) {
   game.ghosts.forEach( ( g ) => moveGhost( game, g ) );
 
   for ( const g of game.ghosts ) {
-    if ( collides( game.pacman, g ) ) {
-      game.lives--;
-      if ( game.lives <= 0 ) {
-        game.state = 'lost';
-        return;
-      }
-      resetPositions( game );
-      break;
+    if ( !collides( game.pacman, g ) ) continue;
+
+    // Los ojos no matan ni se pueden volver a comer.
+    if ( g.state === 'eaten' || g.state === 'entering' ) continue;
+
+    // Comestible: puntuacion en combo y vuelta a la pen como ojos.
+    if ( game.frightTimer > 0 ) {
+      game.score += GHOST_SCORES[ Math.min( game.ghostCombo, 3 ) ];
+      game.ghostCombo++;
+      g.state = insidePen( g ) ? 'entering' : 'eaten';
+      continue;
     }
+
+    game.lives--;
+    if ( game.lives <= 0 ) {
+      game.state = 'lost';
+      return;
+    }
+    resetPositions( game );
+    break;
   }
 
   if ( game.dotsRemaining <= 0 ) game.state = 'won';
