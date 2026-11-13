@@ -143,8 +143,9 @@ function manhattan( ax, ay, bx, by ) {
 }
 
 // Elige la direccion transitable que mas acerca a target.
+// Con flee=true elige la que mas aleja (huida asustada).
 // Desempate fijo segun DIR_ORDER (arriba > izquierda > abajo > derecha).
-function chooseDirection( grid, x, y, dir, target, allowDoor ) {
+function chooseDirection( grid, x, y, dir, target, allowDoor, flee ) {
   const options = DIR_ORDER.filter(
     ( d ) => d !== OPPOSITE[ dir ] && canMove( grid, x, y, d, 'ghost', allowDoor )
   );
@@ -152,11 +153,11 @@ function chooseDirection( grid, x, y, dir, target, allowDoor ) {
   const choices = options.length ? options : [ OPPOSITE[ dir ] ];
 
   let best = choices[ 0 ];
-  let bestDist = Infinity;
+  let bestDist = flee ? -Infinity : Infinity;
   for ( const d of choices ) {
     const delta = DIRS[ d ];
     const dist = manhattan( x + delta.x, y + delta.y, target.x, target.y );
-    if ( dist < bestDist ) {
+    if ( flee ? dist > bestDist : dist < bestDist ) {
       bestDist = dist;
       best = d;
     }
@@ -202,11 +203,14 @@ function ghostTarget( game, g ) {
 function decideGhost( game, g ) {
   const grid = game.grid;
   const leaving = g.state === 'leaving';
+  const flee = game.frightTimer > 0 && !leaving;
   const target = leaving
     ? ( g.x < 13.5 ? PEN_EXIT_LEFT : PEN_EXIT_RIGHT )
-    : ghostTarget( game, g );
+    : flee
+      ? { x: Math.round( game.pacman.x ), y: Math.round( game.pacman.y ) }
+      : ghostTarget( game, g );
 
-  g.dir = chooseDirection( grid, g.x, g.y, g.dir, target, leaving );
+  g.dir = chooseDirection( grid, g.x, g.y, g.dir, target, leaving, flee );
 }
 
 function moveGhost( game, g ) {
@@ -223,6 +227,10 @@ function moveGhost( game, g ) {
   if ( aligned( g.x ) && aligned( g.y ) ) {
     g.x = Math.round( g.x );
     g.y = Math.round( g.y );
+    // La velocidad solo cambia en celdas alineadas para no perder la alineacion.
+    if ( g.state === 'eaten' || g.state === 'entering' ) g.speed = EATEN_SPEED;
+    else if ( game.frightTimer > 0 ) g.speed = FRIGHTENED_SPEED;
+    else g.speed = GHOST_SPEED;
     // Ya esta por encima de la puerta: pasa a aplicar su personalidad.
     if ( g.state === 'leaving' && g.y <= PEN_EXIT_LEFT.y ) g.state = 'normal';
     decideGhost( game, g );
@@ -256,6 +264,8 @@ function collides( a, b ) {
 }
 
 function update( game ) {
+  // Se descuenta antes de mover: al llegar a 0 el fantasma ya no es comestible.
+  if ( game.frightTimer > 0 ) game.frightTimer--;
   movePacman( game );
   game.ghosts.forEach( ( g ) => moveGhost( game, g ) );
 
