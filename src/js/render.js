@@ -165,6 +165,19 @@ const GHOST_COLORS = {
   shy: '#ffb852',
 };
 
+// Azul asustado, blanco en el parpadeo final y color propio en el resto.
+// Los ojos (eaten/entering) nunca se pintan de azul.
+function ghostColor( game, g ) {
+  const isEyes = g.state === 'eaten' || g.state === 'entering';
+  if ( !isEyes && game.frightTimer > 0 ) {
+    const flashing =
+      game.frightTimer <= FRIGHT_FLASH_FRAMES &&
+      Math.floor( game.frightTimer / FRIGHT_FLASH_PERIOD ) % 2 === 0;
+    return flashing ? '#ffffff' : '#2121ff';
+  }
+  return GHOST_COLORS[ g.kind ] || '#ff0000';
+}
+
 function draw( ctx, game, frame ) {
   const grid = game.grid;
   const W = grid[ 0 ].length;
@@ -178,9 +191,7 @@ function draw( ctx, game, frame ) {
   drawDots( ctx, grid );
   drawPellets( ctx, grid );
   drawPacman( ctx, game.pacman, frame );
-  game.ghosts.forEach( ( g ) =>
-    drawGhost( ctx, g, GHOST_COLORS[ g.kind ] || '#ff0000' )
-  );
+  game.ghosts.forEach( ( g ) => drawGhost( ctx, g, ghostColor( game, g ) ) );
   drawHUD( ctx, game, W );
 }
 
